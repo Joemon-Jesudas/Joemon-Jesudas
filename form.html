@@ -1,0 +1,139 @@
+html:
+<div class="container">
+  <div class="dropdown-trigger" (click)="toggleDropdown()">
+    Allianz {{selectedModel}} 
+    <i class="fa fa-chevron-down dropdown-icon" [class.rotate]="dropdownOpen"></i>
+    <!-- <span class="dropdown-icon" [class.rotate]="dropdownOpen">&#9662;</span> -->
+  </div>
+
+  <div class="commandsContainer">
+      <app-clear-chat-button class="commandButton" (onclear)="clearChat()" [disabled]="!lastQuestion || isLoading"></app-clear-chat-button>
+      <app-settings-button class="commandButton" (onClick)="openSettingsPanel()"></app-settings-button>
+  </div>
+</div>
+
+
+<!-- dropdown panel -->
+<div class="dropdown-panel" [class.open]="dropdownOpen">
+  <div class="dropdown-header">
+    <span>Model</span>
+  </div>
+  <div class="dropdown-item" (click)="selectModel('GPT-4o')" [class.selected]="selectedModel==='GPT-4o'">
+    GPT-4o<small> Best for complex tasks</small>
+  </div>
+  <div class="dropdown-item" (click)="selectModel('GPT-4o mini')" [class.selected]="selectedModel==='GPT-4o mini'" >
+    GPT-4o mini<small>Faster for everyday tasks</small>
+  </div>
+  <div class="dropdown-item" (click)="selectModel('GPT-3.5-Turbo')" [class.selected]="selectedModel==='GPT-3.5-Turbo'">
+    GPT-3.5-Turbo<small>Leagacy Model</small>
+  </div>
+  <hr/>
+ </div>
+  
+  
+<!-- Settings Panel -->
+<nx-sidepanel style="background-color: white; z-index: 1001;" *ngIf="isConfigPanelOpen" [(opened)]="isConfigPanelOpen" (nxClose)="closeSettingsPanel()">
+  <nx-sidepanel-header>
+    <h2 style="color:#13A0D3;">Configure Answer Generation</h2>
+  </nx-sidepanel-header>
+
+  <nx-sidepanel-content style="padding-top: 30px;">
+    <nx-formfield>
+      <nx-formfield-label style="font-weight: lighter;">Override prompt template</nx-formfield-label>
+      <textarea nxInput [value]="promptTemplate" (input)="onPromptTemplateChange($event.target.value)" aria-labelledby="promptTemplateId"></textarea>
+    </nx-formfield>
+
+    <nx-formfield>
+      <nx-formfield-label style="font-weight: lighter;">Temperature</nx-formfield-label>
+      <input nxInput type="number" min="0" max="1" step="0.1" [value]="temperature" (input)="onTemperatureChange($event.target.valueAsNumber)" aria-labelledby="temperatureId">
+    </nx-formfield>
+
+    <nx-formfield>
+      <nx-formfield-label style="font-weight: lighter;" >Retrieve this many search results</nx-formfield-label>
+      <input nxInput type="number" min="1" max="50" [value]="retrieveCount" (input)="onRetrieveCountChange($event.target.valueAsNumber)" aria-labelledby="retrieveCountId">
+    </nx-formfield>
+
+     <!-- <nx-formfield>
+      <nx-formfield-label style="font-weight: lighter;">Exclude category:</nx-formfield-label>
+      <input nxInput type="text" [value]="excludeCategory" (input)="onExcludeCategoryChanged($event.target.value)" aria-labelledby="excludeCategoryId">
+    </nx-formfield> -->
+
+    <!-- <nx-switcher labelSize="small" style="padding-top: 50px;" *ngIf="showSemanticRankerOption" [(ngModel)]="useSemanticRanker" (ngModelChange)="onUseSemanticRankerChange($event)">
+      Use semantic ranker for retrieval
+    </nx-switcher>
+
+    <nx-switcher labelSize="small" *ngIf="showSemanticRankerOption" [(ngModel)]="useSemanticCaptions" [disabled]="!useSemanticRanker" (ngModelChange)="onUseSemanticCaptionsChange($event)">
+      Use semantic captions
+     
+    </nx-switcher> -->
+
+    <nx-switcher labelSize="small" [(ngModel)]="useSuggestFollowupQuestions" (ngModelChange)="onUseSuggestFollowupQuestionsChange($event)">
+      Suggest follow-up questions
+      
+    </nx-switcher>
+    <div style="padding-top: 120px;">
+      <button nxButton="primary small-medium" (click)="closeSettingsPanel()" aria-label="Close">
+        Close <nx-icon style="color: white; padding-left: 12px;" name="close-circle"></nx-icon> 
+      </button>
+    </div>
+    
+  </nx-sidepanel-content>
+</nx-sidepanel>
+
+<!-- Main Content -->
+<div class="mainContent">
+  <!-- Chat Container -->
+  <div class="chatContainer">
+    <div *ngIf="!lastQuestion" class="chatEmptyState">
+      <!--<nx-icon name="chatbot-thrilled-o" style="font-size: 120px; color: rgb(43, 181, 223); padding-bottom: 50px;"></nx-icon>-->
+      <img class="datalab-logo" src="assets/logos/img/datalab-icon.svg" alt="datalab logo">
+      <h1 nxHeadline="subsection-medium" class="chatEmptyStateTitle">Chat with your data</h1>
+      <h2 nxHeadline="subsection-small" class="chatEmptyStateSubtitle" style="padding-bottom: 50px;">Ask anything or try an example</h2>
+      <div>
+        <app-example (onExampleClicked)="onExampleClicked($event)"></app-example>
+      </div>
+    </div>
+
+    <!-- Display Question and Answer -->
+    <div *ngIf="lastQuestion" class="chatMessageStream" #chatContainer>
+      <div *ngFor="let answer of answers">
+        <div style="margin-bottom: 20px;">
+          <app-user-chat-message [message]="answer.question"></app-user-chat-message>
+          <app-answer 
+            [question]="answer.question"
+            [answer]="answer.answer" 
+            [citations]="answer.citations" 
+            (citationClicked)="onCitationClicked($event)" 
+            (tabSwitch)="onTabSwitch($event)"
+            (reloadQuestion)="onReloadQuestion($event)"></app-answer>
+        </div>
+      </div>
+      <div *ngIf="currentQuestion">
+        <app-user-chat-message [message]="currentQuestion"></app-user-chat-message>
+        <div *ngIf="isLoading" class="chatMessageGpt">
+          <app-answer-loading></app-answer-loading>
+        </div>
+        <div *ngIf="error" class="chatMessageStream">
+        <div style="margin-bottom: 20px;">
+          <app-answer-error [error]="error" (retry)="retryLastQuestion()"></app-answer-error>
+        </div>
+        </div>
+      </div>
+    </div>
+    <div class="chatInput">
+      <app-question-input (sendQuestion)="onSend($event)"></app-question-input>
+    </div>
+  </div>
+
+  <!-- Analysis Panel -->
+  <div class="analysisPanelContainer" #analysisPanel *ngIf="showAnalysisPanel">
+    <div class="resizer" (mousedown)="startResize($event)"></div>
+
+    <app-analysis-panel style="z-index: 1001; background-color: white;"
+      [answer]="answer || {context: {thoughts:[],data_points:[]}}"
+      [activeTab]="activeTab"
+      [activeCitation]="activeCitation"
+      (closePanel)="closeAnalysisPanel()">
+    </app-analysis-panel>
+  </div>
+</div>
