@@ -1,207 +1,84 @@
-import re
-from azure.ai.formrecognizer import DocumentAnalysisClient
+import os
+from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.core.credentials import AzureKeyCredential
 
+endpoint = "https://<YOUR-RESOURCE>.cognitiveservices.azure.com/"
+key = "<YOUR-KEY>"
 
-# -------------------------------------------------------
-# 1. Azure Setup
-# -------------------------------------------------------
-endpoint = "<YOUR_ENDPOINT>"
-key = "<YOUR_KEY>"
+pdf_path = "sample.pdf"
+output_md = "extracted.md"
 
-client = DocumentAnalysisClient(
-    endpoint=endpoint, credential=AzureKeyCredential(key)
+client = DocumentIntelligenceClient(
+    endpoint=endpoint,
+    credential=AzureKeyCredential(key)
 )
 
+# ---------------------------------------------------------
+# READ PDF
+# ---------------------------------------------------------
+with open(pdf_path, "rb") as f:
+    file_bytes = f.read()
 
-# -------------------------------------------------------
-# 2. Extract layout (text + tables)
-# -------------------------------------------------------
-def extract_layout(pdf_path):
-    with open(pdf_path, "rb") as f:
-        poller = client.begin_analyze_document("prebuilt-layout", document=f)
-        result = poller.result()
+# ---------------------------------------------------------
+# CALL PREBUILT-LAYOUT MODEL (works in your SDK version)
+# ---------------------------------------------------------
+poller = client.begin_analyze_document(
+    model_id="prebuilt-layout",
+    document=file_bytes
+)
 
-    full_text = ""
-    tables = []
+result = poller.result()  # <-- AnalyzeResult (available in your version)
 
-    # Combine all text (document order)
+# ---------------------------------------------------------
+# BUILD MARKDOWN OUTPUT
+# ---------------------------------------------------------
+
+def extract_text_markdown(result):
+    md = ""
     for page in result.pages:
         for line in page.lines:
-            full_text += line.content + "\n"
+            md += line.content + "\n"
+        md += "\n\n"
+    return md
 
-    # Extract tables
+
+def extract_tables_markdown(result):
+    md = ""
+    if not result.tables:
+        return md
+
     for table in result.tables:
-        table_rows = []
-        for row in table.cells:
-            # group by row index
-            while len(table_rows) <= row.row_index:
-                table_rows.append([])
-            table_rows[row.row_index].append(row.content.strip())
-        tables.append(table_rows)
+        row_count = table.row_count
+        column_count = table.column_count
 
-    return full_text, tables
+        # Create empty grid
+        grid = [["" for _ in range(column_count)] for _ in range(row_count)]
 
+        for cell in table.cells:
+            grid[cell.row_index][cell.column_index] = cell.content
 
-# -------------------------------------------------------
-# 3. Convert Table to Markdown
-# -------------------------------------------------------
-def table_to_markdown(table):
-    md = []
+        # Convert grid → markdown
+        md += "### Table\n"
+        md += "| " + " | ".join(grid[0]) + " |\n"
+        md += "| " + " | ".join(["---"] * column_count) + " |\n"
 
-    # Header row
-    header = "| " + " | ".join(table[0]) + " |"
-    separator = "| " + " | ".join(["---"] * len(table[0])) + " |"
+        for i in range(1, row_count):
+            md += "| " + " | ".join(grid[i]) + " |\n"
 
-    md.append(header)
-    md.append(separator)
-
-    # Body rows
-    for row in table[1:]:
-        md.append("| " + " | ".join(row) + " |")
-
-    return "\n".join(md)
-
-
-# -------------------------------------------------------
-# 4. Template Classification
-# -------------------------------------------------------
-def classify_template(text):
-    t = text.lower()
-
-    if "agreement for it projects and services" in t:
-        return "IT"
-    if "consulting agreement" in t or any(w in t for w in ["consulting", "teaching", "advising", "coaching"]):
-        return "Non-IT"
-    if any(w in t for w in ["marketing", "market insight", "media"]):
-        return "Marketing"
-
-    return "Unknown"
-
-
-# -------------------------------------------------------
-# 5. Section Extraction Logic
-# -------------------------------------------------------
-def extract_between(text, start_words, end_words):
-    start_pattern = "|".join([re.escape(w) for w in start_words])
-    end_pattern = "|".join([re.escape(w) for w in end_words])
-
-    pattern = rf"({start_pattern})(.*?)(?={end_pattern})"
-    match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-    if match:
-        return match.group(2).strip()
-    return ""
-
-
-# -------------------------------------------------------
-# 6. Extract Required Sections
-# -------------------------------------------------------
-def extract_sections(text):
-    sections = {}
-
-    sections["template"] = classify_template(text)
-
-    sections["allianz_address"] = extract_between(
-        text,
-        ["allianz", "allianz technology", "allianz services"],
-        ["supplier", "central points", "project management", "place of performance"]
-    )
-
-    sections["supplier_address"] = extract_between(
-        text,
-        ["supplier", "vendor", "service provider"],
-        ["central points", "project management", "place of performance"]
-    )
-
-    sections["central_poc"] = extract_between(
-        text,
-        ["central points of contact", "project management"],
-        ["place of performance", "remuneration"]
-    )
-
-    sections["place_of_performance"] = extract_between(
-        text, ["place of performance"], ["remuneration", "fees", "invoicing"]
-    )
-
-    sections["remuneration"] = extract_between(
-        text, ["remuneration", "fees"], ["invoicing", "invoice address", "data protection"]
-    )
-
-    sections["invoicing"] = extract_between(
-        text, ["invoicing"], ["invoice address", "data protection"]
-    )
-
-    sections["invoice_address"] = extract_between(
-        text, ["invoice address"], ["data protection", "termination"]
-    )
-
-    sections["data_protection"] = extract_between(
-        text, ["data protection"], ["terms", "termination", "signatures"]
-    )
-
-    sections["termination"] = extract_between(
-        text, ["terms and termination", "termination"], ["signatures", "signed by"]
-    )
-
-    return sections
-
-
-# -------------------------------------------------------
-# 7. Build Final Markdown Output (with tables)
-# -------------------------------------------------------
-def build_markdown(sections, tables):
-    md = f"""
-# Contract Extraction Summary
-
-## 1. Template Used
-**Category:** {sections['template']}
-
-## 2. Allianz Name & Address
-{sections['allianz_address']}
-
-## 3. Supplier Name & Address
-{sections['supplier_address']}
-
-## 4. Central Points of Contact / Project Management
-{sections['central_poc']}
-
-## 5. Place of Performance
-{sections['place_of_performance']}
-
-## 6. Remuneration
-{sections['remuneration']}
-
-## 7. Invoicing
-{sections['invoicing']}
-
-## 8. Invoice Address
-{sections['invoice_address']}
-
-## 9. Data Protection
-{sections['data_protection']}
-
-## 10. Terms and Termination
-{sections['termination']}
-
-# 11. Extracted Tables
-"""
-
-    for i, table in enumerate(tables):
-        md += f"\n## Table {i+1}\n"
-        md += table_to_markdown(table)
-        md += "\n"
+        md += "\n\n"
 
     return md
 
 
-# -------------------------------------------------------
-# 8. MAIN
-# -------------------------------------------------------
-if __name__ == "__main__":
-    pdf_path = "contract.pdf"
+markdown_text = extract_text_markdown(result)
+markdown_tables = extract_tables_markdown(result)
 
-    full_text, tables = extract_layout(pdf_path)
-    sections = extract_sections(full_text)
-    markdown_output = build_markdown(sections, tables)
+final_md = markdown_text + markdown_tables
 
-    print(markdown_output)
+# ---------------------------------------------------------
+# SAVE OUTPUT
+# ---------------------------------------------------------
+with open(output_md, "w", encoding="utf-8") as f:
+    f.write(final_md)
+
+print("Markdown extraction complete →", output_md)
