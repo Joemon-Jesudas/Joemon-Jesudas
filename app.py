@@ -1,4 +1,10 @@
+import os
+import json
+import time
+from datetime import datetime
+from typing import Optional, Dict, Any
 import streamlit as st
+
 from config import AppConfig
 from services.azure_clients import AzureClientManager
 from services.document_extractor import DocumentExtractor
@@ -7,35 +13,144 @@ from ui.styles import Styles
 from ui.display_manager import DisplayManager
 
 def main():
+    # Page setup + styles
     AppConfig.setup_page()
     Styles.load()
 
-    st.title("📄 Document Validator System")
+    # Header
+    st.markdown("""
+        <div class="header-section">
+            <h1>📄 Document Validator System</h1>
+            <p>Automated extraction and analysis of contract documents using Azure AI services</p>
+        </div>
+    """, unsafe_allow_html=True)
 
+    # Validate environment variables early
     if not AppConfig.validate():
         st.stop()
 
-    azure = AzureClientManager()
-    extractor = DocumentExtractor(azure.doc_client)
-    analyzer = ContractAnalyzer(azure.openai_client)
+    # Initialize Azure clients
+    try:
+        azure = AzureClientManager()
+        doc_client = getattr(azure, "doc_client", None)
+        openai_client = getattr(azure, "openai_client", None)
+        if doc_client is None or openai_client is None:
+            raise RuntimeError("Azure clients not fully initialized. Check environment variables.")
+    except Exception as e:
+        st.error("Failed to initialize Azure clients.")
+        st.exception(e)
+        st.stop()
 
+    extractor = DocumentExtractor(doc_client)
+    analyzer = ContractAnalyzer(openai_client)
+
+    # Sidebar info
+    with st.sidebar:
+        st.header("ℹ️ Application Info")
+        st.info("**Document Validator v1.0**\n\nThis application uses Azure Document Intelligence to extract text from PDFs and Azure OpenAI to analyze contract content automatically.")
+        st.divider()
+
+    # Session state defaults
+    if "processing_complete" not in st.session_state:
+        st.session_state.processing_complete = False
+        st.session_state.result = None
+        st.session_state.file_name = None
+        st.session_state.extraction_time = 0.0
+        st.session_state.analysis_time = 0.0
+        st.session_state.page_count = 0
+        st.session_state.processing_time = ""
+
+    # File upload
     st.subheader("📤 Upload Document")
-    uploaded_file = st.file_uploader("Upload PDF", type="pdf")
+    uploaded_file = st.file_uploader("Select a PDF document to analyze", type="pdf")
 
-    if uploaded_file:
+    if uploaded_file is not None:
         DisplayManager.show_file_info(uploaded_file)
 
-        if st.button("Analyze Document", type="primary"):
-            pdf_bytes = uploaded_file.read()
+        col1, col2 = st.columns(2)
+        with col1:
+            process_button = st.button("🚀 Analyze Document", type="primary")
+        with col2:
+            clear_button = st.button("🔄 Clear Results")
 
-            with st.spinner("Extracting text..."):
-                text, pages, t_extract = extractor.extract_text(pdf_bytes)
+        if clear_button:
+            st.session_state.processing_complete = False
+            st.session_state.result = None
+            st.session_state.file_name = None
+            st.experimental_rerun()
 
-            with st.spinner("Analyzing contract..."):
-                result_json, t_analyze = analyzer.analyze(text)
+        if process_button:
+            try:
+                # Read PDF bytes
+                pdf_content = uploaded_file.read()
 
-            st.success("Document processed successfully!")
-            DisplayManager.show_results(result_json)
+                # Extract text
+                status = st.empty()
+                status.info("📖 Extracting text from PDF...")
+                with st.spinner("Extracting text..."):
+                    full_text, page_count, extraction_time = extractor.extract_text(pdf_content)
+
+                st.session_state.extraction_time = extraction_time
+                st.session_state.page_count = page_count
+
+                # Analyze contract
+                status.info("🔍 Analyzing contract with AI...")
+                with st.spinner("Analyzing contract..."):
+                    result_json, analysis_time = analyzer.analyze(full_text)
+
+                st.session_state.analysis_time = analysis_time
+                st.session_state.processing_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                st.session_state.result = result_json
+                st.session_state.file_name = uploaded_file.name
+                st.session_state.processing_complete = True
+
+                status.empty()
+                st.markdown('<div class="success-box">✅ <b>Document processed successfully!</b></div>', unsafe_allow_html=True)
+
+            except Exception as e:
+                st.error("❌ Error Processing Document")
+                with st.expander("View Error Details"):
+                    st.code(str(e), language="text")
+
+    # Display results if processing complete
+    if st.session_state.processing_complete and st.session_state.result:
+        DisplayManager.show_processing_stats(
+            extraction_time=st.session_state.extraction_time,
+            analysis_time=st.session_state.analysis_time,
+            page_count=st.session_state.page_count,
+            processed_time=st.session_state.processing_time
+        )
+        DisplayManager.show_results(st.session_state.result)
+
+        # Download raw JSON
+        json_str = json.dumps(st.session_state.result, indent=2)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                label="⬇️ Download Results (JSON)",
+                data=json_str,
+                file_name=f"contract_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json",
+                use_container_width=True
+            )
+        with col2:
+            st.download_button(
+                label="⬇️ Download Results (Text)",
+                data=json_str,
+                file_name=f"contract_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+
+    # Footer
+    st.divider()
+    footer_col1, footer_col2, footer_col3 = st.columns(3)
+    with footer_col1:
+        st.caption("📝 Contract Analyzer v1.0")
+    with footer_col2:
+        st.caption(f"🕐 Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    with footer_col3:
+        st.caption("🔒 Enterprise Grade | Production Ready")
 
 if __name__ == "__main__":
     main()
