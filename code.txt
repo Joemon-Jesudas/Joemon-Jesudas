@@ -1,84 +1,99 @@
-import os
 from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.ai.documentintelligence.models import DocumentContentFormat
 from azure.core.credentials import AzureKeyCredential
+import re
 
-endpoint = "https://<YOUR-RESOURCE>.cognitiveservices.azure.com/"
-key = "<YOUR-KEY>"
+endpoint = "<YOUR_ENDPOINT>"
+key = "<YOUR_KEY>"
 
-pdf_path = "sample.pdf"
-output_md = "extracted.md"
+client = DocumentIntelligenceClient(endpoint, AzureKeyCredential(key))
 
-client = DocumentIntelligenceClient(
-    endpoint=endpoint,
-    credential=AzureKeyCredential(key)
-)
+# -------------------------------------------------------------------
+# STEP 1 – Extract Full Document as MARKDOWN
+# -------------------------------------------------------------------
 
-# ---------------------------------------------------------
-# READ PDF
-# ---------------------------------------------------------
-with open(pdf_path, "rb") as f:
-    file_bytes = f.read()
+def extract_markdown(pdf_path):
+    with open(pdf_path, "rb") as f:
+        filedata = f.read()
 
-# ---------------------------------------------------------
-# CALL PREBUILT-LAYOUT MODEL (works in your SDK version)
-# ---------------------------------------------------------
-poller = client.begin_analyze_document(
-    model_id="prebuilt-layout",
-    document=file_bytes
-)
+    poller = client.begin_analyze_document(
+        model_id="prebuilt-layout",
+        document=filedata,
+        features=["keyValuePairs"],
+        output_content_format=DocumentContentFormat.MARKDOWN,
+    )
+    result = poller.result()
+    return result.content  # <-- This is the full Markdown text
 
-result = poller.result()  # <-- AnalyzeResult (available in your version)
 
-# ---------------------------------------------------------
-# BUILD MARKDOWN OUTPUT
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
+# STEP 2 – Extract Required Headings + Content
+# -------------------------------------------------------------------
 
-def extract_text_markdown(result):
-    md = ""
-    for page in result.pages:
-        for line in page.lines:
-            md += line.content + "\n"
-        md += "\n\n"
+REQUIRED_HEADINGS = [
+    "Agreement for IT Projects and Services",
+    "Subcontractors",
+    "Central Points of Contact/Project Management",
+    "Place of performance",
+    "Remuneration/Invoicing",
+    "Invoicing",
+    "Data Protection1",
+    "Term",
+    "Start Date",
+    "End Date",
+    "Termination for Convenience",
+    "Attachment 1: Service Description",
+]
+
+# Convert required headings into a regex-safe group
+escaped_headings = [re.escape(h) for h in REQUIRED_HEADINGS]
+heading_pattern = r"(?P<title>" + "|".join(escaped_headings) + r")"
+
+
+def extract_sections_from_markdown(md_text):
+    """
+    Extracts markdown headings and the content that follows until the next heading.
+    """
+    sections = {}
+    
+    # Regex to capture heading + content until next required heading
+    pattern = rf"(?P<title>{'|'.join(escaped_headings)})\s*(?P<content>.*?)(?=\n#|\n##|\n###|{'|'.join(escaped_headings)}|$)"
+    
+    matches = re.finditer(pattern, md_text, flags=re.S)
+
+    for m in matches:
+        title = m.group("title").strip()
+        content = m.group("content").strip()
+        sections[target_clean_heading(title)] = content
+
+    return sections
+
+
+def target_clean_heading(h):
+    """Normalize headings if needed"""
+    return h.replace(".", "").strip()
+
+
+# -------------------------------------------------------------------
+# STEP 3 – Generate Final Markdown Output
+# -------------------------------------------------------------------
+
+def build_final_markdown(sections):
+    md = "# Extracted Sections\n\n"
+    for title, content in sections.items():
+        md += f"## {title}\n\n{content}\n\n"
     return md
 
 
-def extract_tables_markdown(result):
-    md = ""
-    if not result.tables:
-        return md
+# -------------------------------------------------------------------
+# MAIN EXECUTION
+# -------------------------------------------------------------------
 
-    for table in result.tables:
-        row_count = table.row_count
-        column_count = table.column_count
+if __name__ == "__main__":
+    markdown_text = extract_markdown("fbs-document.pdf")
 
-        # Create empty grid
-        grid = [["" for _ in range(column_count)] for _ in range(row_count)]
+    sections = extract_sections_from_markdown(markdown_text)
 
-        for cell in table.cells:
-            grid[cell.row_index][cell.column_index] = cell.content
+    final_md = build_final_markdown(sections)
 
-        # Convert grid → markdown
-        md += "### Table\n"
-        md += "| " + " | ".join(grid[0]) + " |\n"
-        md += "| " + " | ".join(["---"] * column_count) + " |\n"
-
-        for i in range(1, row_count):
-            md += "| " + " | ".join(grid[i]) + " |\n"
-
-        md += "\n\n"
-
-    return md
-
-
-markdown_text = extract_text_markdown(result)
-markdown_tables = extract_tables_markdown(result)
-
-final_md = markdown_text + markdown_tables
-
-# ---------------------------------------------------------
-# SAVE OUTPUT
-# ---------------------------------------------------------
-with open(output_md, "w", encoding="utf-8") as f:
-    f.write(final_md)
-
-print("Markdown extraction complete →", output_md)
+    print(final_md)
