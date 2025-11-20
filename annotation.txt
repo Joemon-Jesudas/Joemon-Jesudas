@@ -1,0 +1,15 @@
+# Build highlights (example keywords)
+keywords = ["Allianz", "signature", "invoice address", "VAT", "Remuneration", "Start Date", "End Date"]
+
+highlights = build_highlights_from_analyze_result(st.session_state.result, keywords=keywords)
+if highlights:
+    annotated_pdf_bytes = annotate_pdf_with_chunks(pdf_bytes, highlights)
+    st.download_button(
+        label="⬇️ Download Annotated PDF",
+        data=annotated_pdf_bytes,
+        file_name=f"annotated_{st.session_state.file_name}",
+        mime="application/pdf",
+        use_container_width=True
+    )
+else:
+    st.info("No highlightable keywords found for annotation.")
