@@ -1,32 +1,32 @@
 # services/explainability.py
-from typing import Dict, Any
 import os
 
 EXPLAIN_PROMPT = """
-You are an expert contract validation analyst. Given the following:
+You are an expert contract validation analyst. Given:
+
 - Field Name
 - Extracted Value
-- Expected or Required Value
+- Expected/Required Value
 - Validation Status (Correct, Mismatch, Missing, N/A)
 
-Explain clearly in 2–3 bullet points:
-1. Why the model flagged the field with this status.
-2. What the user must do to correct or improve the field.
+Explain concisely in **2–3 bullet points**:
+1. Why the field received this status.
+2. What the user should do to fix or improve it.
 
-Keep explanation short, neutral, and business-friendly.
+Avoid long paragraphs. Keep the tone business-friendly.
 """
 
-def explain_field(openai_client, model_name: str, field_name: str, extracted_value: str, expected_value: str, status: str) -> str:
-    """
-    Returns a short explanation from the LLM for why a field is mismatch/missing.
-    """
+
+def explain_field(openai_client, model_name: str, field_name: str,
+                  extracted_value: str, expected_value: str, status: str) -> str:
+
     user_prompt = f"""
-Field: {field_name}
+Field Name: {field_name}
 Extracted Value: {extracted_value}
-Expected/Required: {expected_value}
+Expected Value: {expected_value}
 Status: {status}
 
-Explain:
+Explain in 2–3 bullet points why this happened and how to fix it:
 """
 
     response = openai_client.chat.completions.create(
@@ -35,7 +35,7 @@ Explain:
             {"role": "user", "content": user_prompt}
         ],
         max_tokens=250,
-        temperature=0.2,
+        temperature=0.1,
         model=model_name
     )
 
