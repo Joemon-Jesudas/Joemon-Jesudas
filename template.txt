@@ -1,0 +1,59 @@
+7. REMUNERATION DETAILS:
+   You MUST extract the following information:
+
+   - Which remuneration option(s) are marked (checkbox ☒)
+   - amount and currency next to the option
+   - upper limit (if mentioned)
+   - the remuneration table directly below the option (table must be extracted exactly as in the PDF)
+
+   TABLE EXTRACTION RULE:
+   ----------------------
+   Convert the remuneration table into the following format:
+     "rate_table": {
+         "headers": ["Service", "Amount", "Unit", "Price per unit", "Total net", "Total brutto"],
+         "rows": [
+            ["value1", "value2", ...],
+            ["value1", "value2", ...]
+         ]
+     }
+
+   A table is considered EMPTY if:
+   - ALL cells in ALL rows are empty strings, null, or missing.
+
+   VALIDATION RULES:
+   ------------------
+   * OPTION 1: Fixed Price
+       - Status = "Correct" ONLY if amount AND currency exist.
+       - Otherwise status = "Missing".
+
+   * OPTION 2: Remuneration Based on Time Expended (Rate Card)
+       - Status = "Correct" if Attachment 3 contains rate values OR the extracted table contains at least one non-empty cell.
+       - If the table is empty OR attachment has no rates → status = "Missing".
+
+   * OPTION 3: Time Expended WITH UPPER LIMIT
+       - Status = "Correct" ONLY if:
+            • upper_limit amount exists,
+            • currency exists,
+            • AND the table is updated (at least ONE non-empty cell).
+       - If table is empty OR upper limit missing → status = "Missing".
+
+   * MULTIPLE OPTIONS:
+       Validate each option independently and return each one inside `marked_options`.
+
+   * MISSING SECTION:
+       If no remuneration information is found → validation_status = "Missing".
+
+   RETURN FIELDS INSIDE `remuneration_details`:
+   --------------------------------------------
+   For each marked option, return:
+        "option": "",
+        "amount": "",
+        "currency": "",
+        "upper_limit": "",
+        "rate_card_status": "Present|Missing|N/A",
+        "table_status": "Updated|Not updated|N/A"
+
+   Additionally return:
+        "rate_table": {headers, rows}
+        "validation_status": "Correct|Mismatch|Missing"
+        "validation_reason": "explanation"
