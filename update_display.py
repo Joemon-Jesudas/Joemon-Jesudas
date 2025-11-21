@@ -33,6 +33,53 @@ with st.expander("💰 Remuneration Details", expanded=True):
 
     # ----- SHOW THE TABLE -----
     rate_table = remuneration.get("rate_table")
+     # =====================================================
+    # 🔥 AUTO-FILL LOGIC FOR OPTION 3 — INSERTED HERE
+    # =====================================================
+    marked_options = remuneration.get("marked_options", [])
+
+    # detect if upper limit option selected (Option 3)
+    upper_limit_option = next(
+        (opt for opt in marked_options if "upper" in opt.get("option", "").lower()),
+        None
+    )
+
+    if upper_limit_option and rate_table:
+        upper_limit_value = upper_limit_option.get("upper_limit")
+        currency = upper_limit_option.get("currency", "")
+
+        # Ensure numeric upper limit
+        if upper_limit_value and upper_limit_value not in ["Missing", "N/A", "", None]:
+            try:
+                numeric_value = float(str(upper_limit_value).replace(",", "").strip())
+            except:
+                numeric_value = None
+
+            if numeric_value is not None:
+                headers = rate_table.get("headers", [])
+                rows = rate_table.get("rows", [])
+
+                # find column indices containing "Total"
+                total_cols = [
+                    idx for idx, h in enumerate(headers)
+                    if "total" in h.lower()
+                ]
+
+                # fill empty cells
+                for row in rows:
+                    for col in total_cols:
+                        if not row[col] or str(row[col]).strip() == "":
+                            row[col] = f"{numeric_value} {currency}"
+
+    # =====================================================
+
+    if rate_table and "headers" in rate_table and "rows" in rate_table:
+        st.subheader("📄 Extracted Rate Table")
+
+        df_table = pd.DataFrame(rate_table["rows"], columns=rate_table["headers"])
+        st.table(df_table)
+    else:
+        st.warning("No rate table extracted.")
 
     if rate_table and "headers" in rate_table and "rows" in rate_table:
         st.subheader("📄 Extracted Rate Table")
