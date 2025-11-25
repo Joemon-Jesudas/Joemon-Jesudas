@@ -1,15 +1,33 @@
-# Build highlights (example keywords)
-keywords = ["Allianz", "signature", "invoice address", "VAT", "Remuneration", "Start Date", "End Date"]
+14. LEGAL CLAUSE VALIDATION:
+    - You are given the REFERENCE legal clauses below (template). These are the source of truth.
+    - In the contract, the clause numbering (e.g. "2.1", "4.1") may be different. You MUST ignore the numbers and compare based on the clause text/meaning.
+    - Extract: all legal clauses under the "General implementing provisions" or equivalent heading from the contract.
+    - Then, for each REFERENCE clause from the template below, find the best matching clause from the extracted clauses and compare them.
 
-highlights = build_highlights_from_analyze_result(st.session_state.result, keywords=keywords)
-if highlights:
-    annotated_pdf_bytes = annotate_pdf_with_chunks(pdf_bytes, highlights)
-    st.download_button(
-        label="⬇️ Download Annotated PDF",
-        data=annotated_pdf_bytes,
-        file_name=f"annotated_{st.session_state.file_name}",
-        mime="application/pdf",
-        use_container_width=True
-    )
-else:
-    st.info("No highlightable keywords found for annotation.")
+    REFERENCE LEGAL CLAUSES (TEMPLATE):
+      2.1. The Contractor shall not manage and organize the supply of the Contractual Services on his own responsibility.
+      2.2. The Parties agree that Contractor's employees shall not be integrated in the work organization of the Customer. The Parties shall take the necessary measures to avoid such an integration, in particular, both Parties shall train their employees to ensure that they are able to comply with the obligations of this Agreement. No internal e-mail address or telephone number shall be assigned to the Contractor or the Contractor’s employees.
+      2.3. The Contractor’s employees work independently under the exclusive authority of the Contractor. This applies even if, due to the special features of the performance of Contractual Services, a joint team must be formed with employees of the Customer.
+      2.4. The Contractor’s employees are not subject to any right of instruction of the Customer, the clients of the Customer and his employees, in particular with regard to place, time and content of the Contractual Services or any disciplinary action.
+      2.5. The selection and classification of the Contractor’s employees is the sole responsibility of the Contractor.
+      2.6. The Contractor shall determine the working time and workplace of the Contractor's employees on his own responsibility. At the same time, this shall not negatively affect Contractor’s compliance with agreed deadlines for milestones/work results.
+      2.7. The Parties agree that the Contractor’s employees do not need to notify the Customer in case of illness, holidays or other events for absence from work. The Customer may not demand such notifications from the Contractor’s employees. The organization of any necessary replacement is the exclusive responsibility of the Contractor.
+      2.8. The Contractor is also obliged to report any violation of this section 2 by the Customer or his personnel immediately in writing (e-mail is sufficient) with a detailed description of the incident to Customers’ Compliance organization (mail to: AllianzTechnology.Compliance@allianz.com).
+
+    VALIDATION RULES:
+     * First, extract the actual clauses from the contract as an array (one string per clause) and return them in "extracted_legal_clauses".
+     * Then compare each REFERENCE clause against the best matching actual clause, IGNORING the leading numbering (e.g. "2.1.", "4.1.").
+     * If the actual clause text is identical or only has minor cosmetic changes (spacing, quotes, punctuation) and does NOT change the meaning: status = "Correct".
+     * If there is ANY change that affects meaning (for example, removing the word "not", changing "shall not" to "shall", adding or removing obligations or rights): status = "Mismatch".
+     * If a REFERENCE clause is completely missing in the contract: status = "Missing".
+     * You MUST treat removal or addition of negations like "not", or changes from "shall" to "may", as meaning-changing → status = "Mismatch".
+
+    CHANGES:
+      * In the "changes" object, describe:
+        - "updates": short explanation of which clause(s) differ.
+        - "clause_position": the reference clause number that changed (e.g. 2.1, 2.3), or null if all correct.
+        - "words_changed": list or short description of the words/phrases that were added or removed (e.g. "'not' removed in clause 2.1, changing meaning").
+    
+    OVERALL VALIDATION:
+      * "validation_status" = "Correct" only if ALL REFERENCE clauses are present and meaning-equivalent.
+      * If any clause is missing or meaning-changing → "validation_status" must be "Mismatch" or "Missing" (not "Correct").
